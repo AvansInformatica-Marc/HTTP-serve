@@ -10,6 +10,7 @@ version = "1.0"
 
 dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.1")
+    implementation("com.github.ajalt.clikt:clikt:3.4.2")
 
     testImplementation(kotlin("test"))
 }
