@@ -54,8 +54,7 @@ class TcpSocket private constructor(
             try {
                 buildString {
                     while(isActive) {
-                        val line = reader.readLine() ?: break
-                        println("> $line")
+                        val line = reader.readLine() ?: if (isEmpty()) continue else break
 
                         appendLine(line)
 
