@@ -6,7 +6,7 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>An Example Page</title>
+    <title>Error ${{ error.code }}</title>
 
     <link rel="stylesheet" href="./style.css" />
     <link rel="stylesheet" href="http://fonts.googleapis.com/css?family=Roboto:300,400,500,700" type="text/css">
@@ -14,8 +14,8 @@
 </head>
 <body>
 
-    <h1>Hello World!</h1>
-    <p>This is a very simple HTML document.</p>
+    <h1>Error ${{ error.code }}</h1>
+    <p>${{ error.description }}</p>
 
 </body>
 </html>
