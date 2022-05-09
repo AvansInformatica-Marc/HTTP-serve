@@ -4,6 +4,7 @@ import kotlinx.coroutines.*
 import java.io.Closeable
 import java.io.IOException
 import java.net.*
+import java.time.Duration
 import java.util.concurrent.TimeUnit
 
 class TcpSocket private constructor(
@@ -80,7 +81,7 @@ class TcpSocket private constructor(
     }
 
     suspend fun isReachable(timeout: Long, timeUnit: TimeUnit = TimeUnit.MILLISECONDS): Boolean {
-        return withContext(Dispatchers.IO) {
+        return withContext(supervisorJob + Dispatchers.IO) {
             socket.inetAddress.isReachable(TimeUnit.MILLISECONDS.convert(timeout, timeUnit).toInt())
         }
     }
@@ -130,8 +131,8 @@ class TcpSocket private constructor(
             }
         }
 
-        suspend fun connectToRemoteSocket(host: String, port: Int, timeout: Long, timeUnit: TimeUnit = TimeUnit.MILLISECONDS): TcpSocket {
-            val timeoutMs = TimeUnit.MILLISECONDS.convert(timeout, timeUnit).toInt()
+        suspend fun connectToRemoteSocket(host: String, port: Int, timeout: Duration): TcpSocket {
+            val timeoutMs = timeout.toMillis().toInt()
             return withContext(Dispatchers.IO) {
                 TcpSocket(Socket().also {
                     it.soTimeout = timeoutMs

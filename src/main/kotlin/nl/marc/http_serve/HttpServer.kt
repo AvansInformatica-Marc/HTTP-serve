@@ -25,6 +25,7 @@ class HttpServer(private val coroutineScope: CoroutineScope) : CliktCommand() {
         val serverSocket = withContext(Dispatchers.IO) {
             ServerSocket(port)
         }
+
         println("Listening on port $port")
         var socketId = 0
 
