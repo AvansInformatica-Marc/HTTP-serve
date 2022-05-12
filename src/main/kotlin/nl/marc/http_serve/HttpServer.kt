@@ -4,11 +4,12 @@ import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.int
+import io.ktor.network.selector.*
+import io.ktor.network.sockets.*
+import io.ktor.utils.io.*
+import io.ktor.utils.io.streams.*
 import kotlinx.coroutines.*
 import nl.marc.http_serve.utils.ResourceUtils
-import nl.marc.http_serve.utils.TcpSocket
-import java.net.ServerSocket
-import kotlin.time.Duration.Companion.seconds
 
 class HttpServer(private val coroutineScope: CoroutineScope) : CliktCommand() {
     private val port by option(help="Port for listening to HTTP requests").int().default(8080)
@@ -20,46 +21,54 @@ class HttpServer(private val coroutineScope: CoroutineScope) : CliktCommand() {
     }
 
     private suspend fun runSuspended() {
-        println("Hello World!")
+        ActorSelectorManager(Dispatchers.IO).use { selectorManager ->
+            aSocket(selectorManager).tcp().bind(port = port).use { serverSocket ->
+                println("Listening on port $port")
+                var socketId = 0
 
-        val serverSocket = withContext(Dispatchers.IO) {
-            ServerSocket(port)
-        }
-
-        println("Listening on port $port")
-        var socketId = 0
-
-        coroutineScope {
-            while (isActive) {
-                val socket = TcpSocket.createSocket(serverSocket)
-                socketId++
-                launch {
-                    val currentSocket = socketId
-                    println("Socket $currentSocket opened")
+                coroutineScope {
                     while (isActive) {
-                        val lines = withTimeoutOrNull(90.seconds) {
-                            socket.readLines(breakOnEmptyLines = true)
-                        }
-
-                        if (lines == null) {
-                            println("Socket $currentSocket timed out")
-                            break
-                        }
-
-                        onRequest(lines, socket, currentSocket)
+                        socketId++
+                        createConnection(socketId, serverSocket)
                     }
-                    socket.closeSuspending()
-                    println("Socket $currentSocket closed")
                 }
             }
         }
+    }
 
-        withContext(Dispatchers.IO) {
-            serverSocket.close()
+    private suspend fun createConnection(socketId: Int, serverSocket: ServerSocket) = coroutineScope {
+        val socket = serverSocket.accept()
+
+        val readChannel = socket.openReadChannel()
+        val writeChannel = socket.openWriteChannel(autoFlush = true)
+
+        println("Socket $socketId opened")
+
+        launch {
+            socket.use {
+                while (handleRequest(socketId, readChannel, writeChannel)) {
+                    ensureActive()
+                }
+            }
         }
     }
 
-    private suspend fun onRequest(request: String?, socket: TcpSocket, socketId: Int) {
+    private suspend fun handleRequest(socketId: Int, readChannel: ByteReadChannel, writeChannel: ByteWriteChannel): Boolean {
+        readChannel.awaitContent()
+
+        if (readChannel.isClosedForRead) {
+            return false
+        }
+
+        val text = readChannel.readPacket(readChannel.availableForRead).readerUTF8().readText()
+        if (text.isNotBlank()) {
+            onRequest(text, writeChannel, socketId)
+        }
+
+        return true
+    }
+
+    private suspend fun onRequest(request: String?, writeChannel: ByteWriteChannel, socketId: Int) {
         println()
         println("--- REQUEST ($socketId) ---")
         println(request)
@@ -68,24 +77,24 @@ class HttpServer(private val coroutineScope: CoroutineScope) : CliktCommand() {
         try {
             val parsedRequest = HttpRequest.parse(request)
             if (parsedRequest != null) {
-                onRequest(parsedRequest, socket)
+                onRequest(parsedRequest, writeChannel)
             }
         } catch (exception: Exception) {
-            writeHttpResult(HttpResult.InternalError, socket)
+            writeHttpResult(HttpResult.InternalError, writeChannel)
         }
     }
 
-    private suspend fun onRequest(request: HttpRequest, socket: TcpSocket) {
+    private suspend fun onRequest(request: HttpRequest, writeChannel: ByteWriteChannel) {
         val requestedResource = if (request.path.endsWith("/")) {
             getResource(request.path + "index.html")
         } else {
             getResource(request.path)
         }
 
-        writeHttpResult(requestedResource, socket)
+        writeHttpResult(requestedResource, writeChannel)
     }
 
-    private suspend fun writeHttpResult(requestedResource: HttpResult, socket: TcpSocket) {
+    private suspend fun writeHttpResult(requestedResource: HttpResult, writeChannel: ByteWriteChannel) {
         val resource = if (requestedResource !is HttpResult.ResourceOK) {
             val errorResource = getResource("/error_page.dynamic.html")
             if (errorResource is HttpResult.ResourceOK) {
@@ -135,7 +144,7 @@ class HttpServer(private val coroutineScope: CoroutineScope) : CliktCommand() {
         println(response.toString())
         println("--- RESPONSE ---")
 
-        socket.writeLine(response.toString())
+        writeChannel.writeStringUtf8(response.toString())
     }
 
     private suspend fun getResource(path: String): HttpResult {
